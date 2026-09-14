@@ -1,0 +1,6 @@
+{
+  "name": "StockStar AI",
+  "description": "AI-powered stock market intelligence, quantitative ML forecasting, technical research terminal, and paper trading platform for Indian and Global equities.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
