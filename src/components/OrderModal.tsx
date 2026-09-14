@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, DollarSign, ArrowRight, ShieldCheck, AlertCircle } from 'lucide-react';
 import { StockQuote } from '../types';
+import { paperTradingService } from '../services/paperTradingService';
 
 interface OrderModalProps {
   stock: StockQuote | null;
@@ -45,7 +46,23 @@ export const OrderModal: React.FC<OrderModalProps> = ({
 
     setLoading(true);
     try {
-      const res = await fetch('/api/paper/order', {
+      // Execute via client-side paper trading engine
+      const executionResult = await paperTradingService.placeOrder({
+        symbol: stock.symbol,
+        side,
+        orderType,
+        quantity,
+        price: priceToUse,
+        targetPrice,
+        stopLossPrice,
+      });
+
+      if (!executionResult.success) {
+        throw new Error('Failed to place order');
+      }
+
+      // Optional async sync to backend if present
+      fetch('/api/paper/order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -57,11 +74,7 @@ export const OrderModal: React.FC<OrderModalProps> = ({
           targetPrice,
           stopLossPrice,
         }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to place order');
-      }
+      }).catch(() => {});
 
       onOrderSuccess();
       onClose();

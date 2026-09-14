@@ -10,6 +10,8 @@ import { PaperTradingView } from './components/PaperTradingView';
 import { LearnView } from './components/LearnView';
 import { WatchlistView } from './components/WatchlistView';
 import { OrderModal } from './components/OrderModal';
+import { CopilotDrawer } from './components/CopilotDrawer';
+import { paperTradingService } from './services/paperTradingService';
 import {
   MarketIndex,
   StockQuote,
@@ -89,11 +91,26 @@ export default function App() {
   const [marketStatus, setMarketStatus] = useState<MarketStatus | null>(FALLBACK_MARKET_STATUS as any);
 
   // Paper Portfolio Cash
-  const [paperCash, setPaperCash] = useState<number>(1000000);
+  const [paperCash, setPaperCash] = useState<number>(() => paperTradingService.getPortfolio().cashBalance);
+
+  // AI Copilot Assistant Drawer State
+  const [isCopilotOpen, setIsCopilotOpen] = useState<boolean>(false);
 
   // Order Execution Modal State
   const [orderModalStock, setOrderModalStock] = useState<StockQuote | null>(null);
   const [isOrderModalOpen, setIsOrderModalOpen] = useState<boolean>(false);
+
+  // Global Keyboard Shortcut: ⌘K or Ctrl+K for Copilot Assistant
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsCopilotOpen(prev => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Initial Data Load with graceful fallback
   const fetchMarketData = async () => {
@@ -122,6 +139,8 @@ export default function App() {
 
       if (portfolioData && portfolioData.cashBalance) {
         setPaperCash(portfolioData.cashBalance);
+      } else {
+        setPaperCash(paperTradingService.getPortfolio().cashBalance);
       }
     } catch (err) {
       console.warn('Market overview notice:', err);
@@ -157,17 +176,23 @@ export default function App() {
   };
 
   const handleOrderSuccess = async () => {
+    const current = paperTradingService.getPortfolio();
+    setPaperCash(current.cashBalance);
     try {
       const res = await fetch('/api/paper/portfolio');
-      const data = await res.json();
-      setPaperCash(data.cashBalance || 1000000);
-    } catch (e) {
-      console.error('Error refreshing cash balance:', e);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.cashBalance) {
+          setPaperCash(data.cashBalance);
+        }
+      }
+    } catch {
+      // Local copy is preserved
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0b0e14] text-[#e2e8f0] flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300">
+    <div className="min-h-screen bg-[#0b0e14] text-[#e2e8f0] flex flex-col selection:bg-emerald-500/30 selection:text-emerald-300 relative">
       {/* Sticky Global Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -178,6 +203,8 @@ export default function App() {
           setSelectedSymbol(sym);
           setCurrentTab('terminal');
         }}
+        onOpenCopilot={() => setIsCopilotOpen(true)}
+        onRefreshData={fetchMarketData}
         onOpenOrderModal={() => {
           const s = allQuotes.find(q => q.symbol === selectedSymbol) || allQuotes[0];
           if (s) handleOpenOrderModal(s);
@@ -330,6 +357,20 @@ export default function App() {
         </div>
       </footer>
 
+      {/* Floating Copilot Assistant FAB Button */}
+      <button
+        id="floating-copilot-assist-btn"
+        onClick={() => setIsCopilotOpen(true)}
+        className="fixed bottom-5 right-5 z-40 flex items-center gap-2 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-2.5 text-xs font-bold text-slate-950 shadow-xl shadow-emerald-500/25 hover:shadow-emerald-500/40 hover:scale-105 active:scale-95 transition-all cursor-pointer border border-emerald-300/40 group"
+        title="Open StockStar Copilot AI (Shortcut: ⌘K / Ctrl+K)"
+      >
+        <Sparkles className="h-4 w-4 text-slate-950 group-hover:rotate-12 transition-transform" />
+        <span className="font-sans tracking-wide">Ask Copilot</span>
+        <span className="rounded bg-slate-950/20 px-1 py-0.5 text-[9px] font-mono text-slate-950">
+          ⌘K
+        </span>
+      </button>
+
       {/* Interactive Order Execution Modal */}
       <OrderModal
         stock={orderModalStock}
@@ -337,6 +378,19 @@ export default function App() {
         onClose={() => setIsOrderModalOpen(false)}
         onOrderSuccess={handleOrderSuccess}
         availableCash={paperCash}
+      />
+
+      {/* AI Copilot Drawer */}
+      <CopilotDrawer
+        isOpen={isCopilotOpen}
+        onClose={() => setIsCopilotOpen(false)}
+        currentSymbol={selectedSymbol}
+        onSelectStock={sym => {
+          setSelectedSymbol(sym);
+          setCurrentTab('terminal');
+          setIsCopilotOpen(false);
+        }}
+        onSelectTab={setCurrentTab}
       />
     </div>
   );

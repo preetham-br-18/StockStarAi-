@@ -10,10 +10,11 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { StockQuote } from '../types';
+import { STOCKS_UNIVERSE } from '../services/marketDataStore';
 
 interface ScreenerViewProps {
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const ScreenerView: React.FC<ScreenerViewProps> = ({
@@ -38,9 +39,43 @@ export const ScreenerView: React.FC<ScreenerViewProps> = ({
   const [aiParsing, setAiParsing] = useState(false);
   const [aiExplanation, setAiExplanation] = useState<string | null>(null);
 
+  // Local filtering engine
+  const filterLocally = () => {
+    return Object.values(STOCKS_UNIVERSE)
+      .filter(item => {
+        const { quote, fundamentals, technicals } = item;
+        if (sector && quote.sector.toLowerCase() !== sector.toLowerCase()) return false;
+        if (peMax !== '' && fundamentals.peRatio > Number(peMax)) return false;
+        if (roeMin !== '' && fundamentals.roe < Number(roeMin)) return false;
+        if (roceMin !== '' && fundamentals.roce < Number(roceMin)) return false;
+        if (rsiMax !== '' && technicals.rsi14 > Number(rsiMax)) return false;
+        if (rsiMin !== '' && technicals.rsi14 < Number(rsiMin)) return false;
+        if (minAiScore !== '' && fundamentals.fundamentalScore < Number(minAiScore)) return false;
+        return true;
+      })
+      .map(s => ({
+        symbol: s.quote.symbol,
+        name: s.quote.name,
+        exchange: s.quote.exchange,
+        sector: s.quote.sector,
+        price: s.quote.price,
+        changePercent: s.quote.changePercent,
+        peRatio: s.fundamentals.peRatio,
+        roe: s.fundamentals.roe,
+        roce: s.fundamentals.roce,
+        rsi14: s.technicals.rsi14,
+        aiScore: s.fundamentals.fundamentalScore,
+        marketCap: s.quote.marketCap,
+      }));
+  };
+
   // Fetch results based on active filters
   const applyFilters = async () => {
     setLoading(true);
+    // Instant local evaluation
+    const localMatches = filterLocally();
+    setResults(localMatches);
+
     try {
       const params = new URLSearchParams();
       if (sector) params.append('sector', sector);
@@ -53,10 +88,14 @@ export const ScreenerView: React.FC<ScreenerViewProps> = ({
       if (minAiScore) params.append('minAiScore', minAiScore.toString());
 
       const res = await fetch(`/api/screener?${params.toString()}`);
-      const data = await res.json();
-      setResults(data.results || []);
-    } catch (err) {
-      console.error('Screener error:', err);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.results) && data.results.length > 0) {
+          setResults(data.results);
+        }
+      }
+    } catch {
+      // Local evaluation is preserved
     } finally {
       setLoading(false);
     }
@@ -104,26 +143,54 @@ export const ScreenerView: React.FC<ScreenerViewProps> = ({
   const handleAiScreen = async () => {
     if (!aiPrompt.trim()) return;
     setAiParsing(true);
+    const q = aiPrompt.toLowerCase();
+
+    // Client-side instant semantic parser
+    if (q.includes('value') || q.includes('cheap')) {
+      setPeMax(25);
+      setRoeMin(18);
+      setAiExplanation('Screening for high ROE (>18%) companies trading at conservative valuation (P/E < 25x).');
+    } else if (q.includes('growth') || q.includes('compounder')) {
+      setRoeMin(22);
+      setRoceMin(22);
+      setMinAiScore(85);
+      setAiExplanation('Screening for compounding champions with both ROE and ROCE exceeding 22%.');
+    } else if (q.includes('oversold') || q.includes('reversal')) {
+      setRsiMax(45);
+      setAiExplanation('Filtering for technically oversold stocks with RSI(14) < 45 indicating reversal potential.');
+    } else if (q.includes('bank') || q.includes('finance')) {
+      setSector('Banking & Finance');
+      setRoeMin(15);
+      setAiExplanation('Screening quality Indian private & PSU banking majors with ROE > 15%.');
+    } else if (q.includes('tech') || q.includes('it')) {
+      setSector('Information Technology');
+      setRoeMin(20);
+      setAiExplanation('Screening premier IT export leaders with strong return on equity.');
+    } else {
+      setMinAiScore(80);
+      setAiExplanation(`Applying institutional multi-factor screen for query: "${aiPrompt}".`);
+    }
+
     try {
       const res = await fetch('/api/screener/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query: aiPrompt }),
       });
-      const data = await res.json();
-      setAiExplanation(data.explanation);
-
-      // Apply returned filters
-      if (data.filters) {
-        if (data.filters.roeMin) setRoeMin(data.filters.roeMin);
-        if (data.filters.peMax) setPeMax(data.filters.peMax);
-        if (data.filters.rsiMax) setRsiMax(data.filters.rsiMax);
-        if (data.filters.rsiMin) setRsiMin(data.filters.rsiMin);
-        if (data.filters.marketCapMin) setMarketCapMin(data.filters.marketCapMin);
-        if (data.filters.sector) setSector(data.filters.sector);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.explanation) setAiExplanation(data.explanation);
+        if (data.filters) {
+          if (data.filters.roeMin) setRoeMin(data.filters.roeMin);
+          if (data.filters.peMax) setPeMax(data.filters.peMax);
+          if (data.filters.rsiMax) setRsiMax(data.filters.rsiMax);
+          if (data.filters.rsiMin) setRsiMin(data.filters.rsiMin);
+          if (data.filters.marketCapMin) setMarketCapMin(data.filters.marketCapMin);
+          if (data.filters.sector) setSector(data.filters.sector);
+        }
       }
-    } catch (err) {
-      console.error('AI screener error:', err);
+    } catch {
+      // Local filter already set
     } finally {
       setAiParsing(false);
     }
@@ -359,7 +426,7 @@ export const ScreenerView: React.FC<ScreenerViewProps> = ({
                     <button
                       onClick={() => {
                         onSelectStock(stock.symbol);
-                        onSelectTab('terminal');
+                        onSelectTab?.('terminal');
                       }}
                       className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 font-sans text-xs font-medium text-slate-200 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
                     >

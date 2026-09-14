@@ -9,10 +9,11 @@ import {
   ArrowRight,
   ShieldCheck,
 } from 'lucide-react';
+import { STOCKS_UNIVERSE } from '../services/marketDataStore';
 
 interface ComparisonViewProps {
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const ComparisonView: React.FC<ComparisonViewProps> = ({
@@ -24,18 +25,57 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
   const [loading, setLoading] = useState(false);
   const [newSymbolInput, setNewSymbolInput] = useState('');
 
+  const getLocalComparison = (symList: string[]) => {
+    return symList
+      .map(sym => {
+        const item = STOCKS_UNIVERSE[sym];
+        if (!item) return null;
+        return {
+          symbol: item.quote.symbol,
+          name: item.quote.name,
+          exchange: item.quote.exchange,
+          price: item.quote.price,
+          changePercent: item.quote.changePercent,
+          sector: item.quote.sector,
+          marketCap: item.quote.marketCap,
+          peRatio: item.fundamentals.peRatio,
+          pbRatio: item.fundamentals.pbRatio,
+          roe: item.fundamentals.roe,
+          roce: item.fundamentals.roce,
+          debtToEquity: item.fundamentals.debtToEquity,
+          operatingMargin: item.fundamentals.ebitdaMargin,
+          dividendYield: item.fundamentals.dividendYield,
+          rsi14: item.technicals.rsi14,
+          sma20: item.technicals.sma20,
+          sma50: item.technicals.sma50,
+          sma200: item.technicals.sma200,
+          fundamentalScore: item.fundamentals.fundamentalScore,
+          technicalScore: item.technicals.technicalScore,
+        };
+      })
+      .filter(Boolean);
+  };
+
   const fetchComparison = async (symList: string[]) => {
     setLoading(true);
+    // Instant local evaluation
+    const localData = getLocalComparison(symList);
+    setData(localData);
+
     try {
       const res = await fetch('/api/stocks/compare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbols: symList }),
       });
-      const json = await res.json();
-      setData(json.comparison || []);
-    } catch (err) {
-      console.error('Comparison error:', err);
+      if (res.ok) {
+        const json = await res.json();
+        if (json && Array.isArray(json.comparison) && json.comparison.length > 0) {
+          setData(json.comparison);
+        }
+      }
+    } catch {
+      // Local comparison is preserved
     } finally {
       setLoading(false);
     }
@@ -269,7 +309,7 @@ export const ComparisonView: React.FC<ComparisonViewProps> = ({
                       <button
                         onClick={() => {
                           onSelectStock(i.symbol);
-                          onSelectTab('terminal');
+                          onSelectTab?.('terminal');
                         }}
                         className="rounded bg-slate-800 px-3 py-1 font-sans text-[11px] font-medium text-slate-200 hover:text-emerald-400 transition-colors"
                       >

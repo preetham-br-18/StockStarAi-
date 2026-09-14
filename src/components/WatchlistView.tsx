@@ -12,13 +12,36 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { StockQuote, PriceAlert } from '../types';
+import { STOCKS_LIST } from '../services/marketDataStore';
 
 interface WatchlistViewProps {
   allQuotes: StockQuote[];
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
   onOpenOrderModal: (stock: StockQuote) => void;
 }
+
+const DEFAULT_WATCHLIST = ['RELIANCE', 'TCS', 'HDFCBANK', 'INFY', 'TATAMOTORS', 'AAPL', 'NVDA'];
+const DEFAULT_ALERTS: PriceAlert[] = [
+  {
+    id: 'alert-1',
+    symbol: 'RELIANCE',
+    type: 'PRICE_ABOVE',
+    threshold: 3000,
+    note: 'Resistance breakout trigger',
+    createdAt: new Date().toISOString(),
+    triggered: false,
+  },
+  {
+    id: 'alert-2',
+    symbol: 'TCS',
+    type: 'PRICE_BELOW',
+    threshold: 3800,
+    note: 'Value dip accumulation level',
+    createdAt: new Date().toISOString(),
+    triggered: false,
+  },
+];
 
 export const WatchlistView: React.FC<WatchlistViewProps> = ({
   allQuotes = [],
@@ -26,17 +49,23 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   onSelectTab,
   onOpenOrderModal,
 }) => {
-  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([
-    'RELIANCE',
-    'TCS',
-    'HDFCBANK',
-    'INFY',
-    'TATAMOTORS',
-    'AAPL',
-    'NVDA',
-  ]);
+  const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('stockstar_watchlist');
+      return saved ? JSON.parse(saved) : DEFAULT_WATCHLIST;
+    } catch {
+      return DEFAULT_WATCHLIST;
+    }
+  });
 
-  const [alerts, setAlerts] = useState<PriceAlert[]>([]);
+  const [alerts, setAlerts] = useState<PriceAlert[]>(() => {
+    try {
+      const saved = localStorage.getItem('stockstar_price_alerts');
+      return saved ? JSON.parse(saved) : DEFAULT_ALERTS;
+    } catch {
+      return DEFAULT_ALERTS;
+    }
+  });
   const [loadingAlerts, setLoadingAlerts] = useState(false);
 
   // New alert form state
@@ -46,15 +75,18 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   const [alertNote, setAlertNote] = useState('');
 
   const fetchAlerts = async () => {
-    setLoadingAlerts(true);
     try {
       const res = await fetch('/api/alerts');
-      const data = await res.json();
-      setAlerts(Array.isArray(data) ? data : (data.alerts || []));
-    } catch (e) {
-      console.error('Failed to load alerts:', e);
-    } finally {
-      setLoadingAlerts(false);
+      if (res.ok) {
+        const data = await res.json();
+        const serverAlerts = Array.isArray(data) ? data : (data.alerts || []);
+        if (serverAlerts.length > 0) {
+          setAlerts(serverAlerts);
+          localStorage.setItem('stockstar_price_alerts', JSON.stringify(serverAlerts));
+        }
+      }
+    } catch {
+      // Local state is preserved
     }
   };
 
@@ -64,8 +96,23 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
   const handleCreateAlert = async (e: React.FormEvent) => {
     e.preventDefault();
+    const newAlert: PriceAlert = {
+      id: `alert-${Date.now()}`,
+      symbol: alertSymbol,
+      type: alertType,
+      threshold: alertThreshold,
+      note: alertNote || `${alertType} trigger for ${alertSymbol}`,
+      createdAt: new Date().toISOString(),
+      triggered: false,
+    };
+
+    const updated = [newAlert, ...alerts];
+    setAlerts(updated);
+    localStorage.setItem('stockstar_price_alerts', JSON.stringify(updated));
+    setAlertNote('');
+
     try {
-      const res = await fetch('/api/alerts', {
+      fetch('/api/alerts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -74,37 +121,38 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
           threshold: alertThreshold,
           note: alertNote || `${alertType} trigger for ${alertSymbol}`,
         }),
-      });
-      const data = await res.json();
-      if (data.alert) {
-        setAlerts([data.alert, ...(alerts || [])]);
-        setAlertNote('');
-      }
-    } catch (e) {
-      console.error('Error creating alert:', e);
+      }).catch(() => {});
+    } catch {
+      // Ignore background sync error
     }
   };
 
   const handleDeleteAlert = async (id: string) => {
+    const updated = alerts.filter(a => a.id !== id);
+    setAlerts(updated);
+    localStorage.setItem('stockstar_price_alerts', JSON.stringify(updated));
+
     try {
-      await fetch(`/api/alerts/${id}`, { method: 'DELETE' });
-      setAlerts((alerts || []).filter(a => a.id !== id));
-    } catch (e) {
-      console.error('Error deleting alert:', e);
+      fetch(`/api/alerts/${id}`, { method: 'DELETE' }).catch(() => {});
+    } catch {
+      // Ignore
     }
   };
 
   const toggleWatchlist = (sym: string) => {
+    let next: string[];
     if (watchlistSymbols.includes(sym)) {
-      setWatchlistSymbols(watchlistSymbols.filter(s => s !== sym));
+      next = watchlistSymbols.filter(s => s !== sym);
     } else {
-      setWatchlistSymbols([...watchlistSymbols, sym]);
+      next = [...watchlistSymbols, sym];
     }
+    setWatchlistSymbols(next);
+    localStorage.setItem('stockstar_watchlist', JSON.stringify(next));
   };
 
-  const safeQuotes = Array.isArray(allQuotes) ? allQuotes : [];
+  const quoteUniverse = (allQuotes && allQuotes.length > 0) ? allQuotes : STOCKS_LIST;
   const safeSymbols = Array.isArray(watchlistSymbols) ? watchlistSymbols : [];
-  const watchlistQuotes = safeQuotes.filter(q => safeSymbols.includes(q.symbol));
+  const watchlistQuotes = quoteUniverse.filter(q => safeSymbols.includes(q.symbol));
 
   return (
     <div className="space-y-6 pb-12">
@@ -169,7 +217,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                           <button
                             onClick={() => {
                               onSelectStock(stock.symbol);
-                              onSelectTab('terminal');
+                              onSelectTab?.('terminal');
                             }}
                             className="rounded bg-slate-800 px-2.5 py-1 text-slate-200 hover:text-emerald-400 text-[11px]"
                           >

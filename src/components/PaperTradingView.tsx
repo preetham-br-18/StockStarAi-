@@ -27,11 +27,14 @@ import {
   Clock,
 } from 'lucide-react';
 import { PaperPortfolio, StockQuote } from '../types';
+import { paperTradingService } from '../services/paperTradingService';
+import { STOCKS_LIST } from '../services/marketDataStore';
+import { askCopilot } from '../services/copilotService';
 
 interface PaperTradingViewProps {
   onOpenOrderModal: (stock: StockQuote) => void;
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
   onCashUpdate?: (cash: number) => void;
   allQuotes?: StockQuote[];
 }
@@ -43,8 +46,8 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   onCashUpdate,
   allQuotes = [],
 }) => {
-  const [portfolio, setPortfolio] = useState<PaperPortfolio | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [portfolio, setPortfolio] = useState<PaperPortfolio>(() => paperTradingService.getPortfolio());
+  const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'positions' | 'orders' | 'aiRisk' | 'guide'>('positions');
 
   // Modals & User Actions
@@ -67,38 +70,40 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   const [calcStopLoss, setCalcStopLoss] = useState<number>(2765);
 
   // Top popular stocks for quick trade strip
-  const [popularQuotes, setPopularQuotes] = useState<StockQuote[]>([]);
+  const [popularQuotes, setPopularQuotes] = useState<StockQuote[]>(() =>
+    allQuotes.length > 0 ? allQuotes.slice(0, 8) : STOCKS_LIST.slice(0, 8)
+  );
 
   const fetchPortfolio = async () => {
+    // Recalculate based on current market quotes
+    const current = paperTradingService.recalculatePortfolio();
+    setPortfolio(current);
+    if (typeof current.cashBalance === 'number') {
+      onCashUpdate?.(current.cashBalance);
+    }
+
+    // Optional background sync if server is live
     try {
       const res = await fetch('/api/paper/portfolio');
-      const data = await res.json();
-      setPortfolio(data);
-      if (data && typeof data.cashBalance === 'number') {
-        onCashUpdate?.(data.cashBalance);
+      if (res.ok) {
+        const data = await res.json();
+        if (data && typeof data.cashBalance === 'number') {
+          setPortfolio(data);
+          onCashUpdate?.(data.cashBalance);
+        }
       }
-    } catch (err) {
-      console.error('Error fetching paper portfolio:', err);
-    } finally {
-      setLoading(false);
+    } catch {
+      // Local copy is the resilient source of truth
     }
   };
 
   useEffect(() => {
     fetchPortfolio();
 
-    // Fetch stock quotes for quick trade strip if not passed
     if (allQuotes.length > 0) {
       setPopularQuotes(allQuotes.slice(0, 8));
     } else {
-      fetch('/api/stocks')
-        .then(r => (r.ok ? r.json() : null))
-        .then(data => {
-          if (data && Array.isArray(data.stocks)) {
-            setPopularQuotes(data.stocks.slice(0, 8));
-          }
-        })
-        .catch(console.error);
+      setPopularQuotes(STOCKS_LIST.slice(0, 8));
     }
   }, [allQuotes]);
 
@@ -111,20 +116,18 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   const handleResetPortfolio = async (cashAmount = 1000000) => {
     setActionLoading(true);
     try {
-      const res = await fetch('/api/paper/reset', {
+      const newP = await paperTradingService.resetPortfolio(cashAmount);
+      setPortfolio(newP);
+      onCashUpdate?.(newP.cashBalance);
+      showNotification(`Portfolio successfully reset to ₹${cashAmount.toLocaleString('en-IN')} virtual cash`);
+      setShowResetModal(false);
+
+      // Async sync
+      fetch('/api/paper/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ initialCash: cashAmount }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPortfolio(data.portfolio);
-        onCashUpdate?.(data.portfolio.cashBalance);
-        showNotification(`Portfolio successfully reset to ₹${cashAmount.toLocaleString('en-IN')} virtual cash`);
-        setShowResetModal(false);
-      } else {
-        throw new Error(data.error || 'Failed to reset portfolio');
-      }
+      }).catch(() => {});
     } catch (err: any) {
       showNotification(err.message || 'Error resetting portfolio', 'error');
     } finally {
@@ -136,20 +139,18 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   const handleTopUpCash = async (amount: number) => {
     setActionLoading(true);
     try {
-      const res = await fetch('/api/paper/topup', {
+      const newP = await paperTradingService.topUpCash(amount);
+      setPortfolio(newP);
+      onCashUpdate?.(newP.cashBalance);
+      showNotification(`Added ₹${amount.toLocaleString('en-IN')} virtual cash. New balance: ₹${newP.cashBalance.toLocaleString('en-IN')}`);
+      setShowTopUpModal(false);
+
+      // Async sync
+      fetch('/api/paper/topup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPortfolio(data.portfolio);
-        onCashUpdate?.(data.portfolio.cashBalance);
-        showNotification(`Added ₹${amount.toLocaleString('en-IN')} virtual cash. New balance: ₹${data.portfolio.cashBalance.toLocaleString('en-IN')}`);
-        setShowTopUpModal(false);
-      } else {
-        throw new Error(data.error || 'Failed to top up virtual funds');
-      }
+      }).catch(() => {});
     } catch (err: any) {
       showNotification(err.message || 'Error topping up funds', 'error');
     } finally {
@@ -161,13 +162,13 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   const handleLoadDemo = async () => {
     setActionLoading(true);
     try {
-      const res = await fetch('/api/paper/load-demo', { method: 'POST' });
-      const data = await res.json();
-      if (res.ok) {
-        setPortfolio(data.portfolio);
-        onCashUpdate?.(data.portfolio.cashBalance);
-        showNotification('Loaded 3 demo positions (Reliance, TCS, HDFC Bank) for simulation practice');
-      }
+      const newP = await paperTradingService.loadDemoPositions();
+      setPortfolio(newP);
+      onCashUpdate?.(newP.cashBalance);
+      showNotification('Loaded 3 demo positions (Reliance, TCS, HDFC Bank) for simulation practice');
+
+      // Async sync
+      fetch('/api/paper/load-demo', { method: 'POST' }).catch(() => {});
     } catch (err: any) {
       showNotification('Error loading demo portfolio', 'error');
     } finally {
@@ -179,20 +180,18 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   const handleSquareOff = async (symbol: string) => {
     setActionLoading(true);
     try {
-      const res = await fetch('/api/paper/close-position', {
+      const newP = await paperTradingService.closePosition(symbol);
+      setPortfolio(newP);
+      onCashUpdate?.(newP.cashBalance);
+      showNotification(`Position in ${symbol} squared off at current market price! Funds credited.`);
+      setSquareOffStock(null);
+
+      // Async sync
+      fetch('/api/paper/close-position', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ symbol }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setPortfolio(data.portfolio);
-        onCashUpdate?.(data.portfolio.cashBalance);
-        showNotification(`Position in ${symbol} squared off at current market price! Funds credited.`);
-        setSquareOffStock(null);
-      } else {
-        throw new Error(data.error || 'Failed to square off position');
-      }
+      }).catch(() => {});
     } catch (err: any) {
       showNotification(err.message || 'Error squaring off', 'error');
     } finally {
@@ -203,15 +202,40 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
   const handleGenerateAiRiskReport = async () => {
     setAiLoading(true);
     try {
+      // Try server first
       const res = await fetch('/api/ai/portfolio-analysis', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      const data = await res.json();
-      setAiReport(data);
+      if (res.ok) {
+        const data = await res.json();
+        setAiReport(data);
+        setActiveTab('aiRisk');
+        return;
+      }
+    } catch {
+      // Fall back to Copilot analytical audit
+    }
+
+    try {
+      const copilotData = await askCopilot('Audit my paper trading portfolio risk, allocation, and maximum drawdown');
+      const fallbackReport = {
+        portfolioHealthScore: copilotData.confidenceScore || 85,
+        riskRating: copilotData.sentiment === 'BULLISH' ? 'BALANCED_MODERATE' : 'ELEVATED',
+        executiveSummary: copilotData.summary,
+        strengths: copilotData.keyDrivers,
+        vulnerabilities: copilotData.keyRisks,
+        diversificationAnalysis: {
+          sectorConcentration: portfolio.positions.length > 2 ? 'HEALTHY' : 'CONCENTRATED',
+          largestHoldingPercent: portfolio.positions.length > 0 ? 35 : 0,
+          hedgingStatus: 'CASH_BUFFER_ACTIVE',
+        },
+        actionableRecommendations: copilotData.recommendations,
+      };
+      setAiReport(fallbackReport);
       setActiveTab('aiRisk');
     } catch (err) {
-      console.error('AI portfolio error:', err);
+      console.error('AI portfolio audit notice:', err);
     } finally {
       setAiLoading(false);
     }
@@ -464,7 +488,7 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
             <span className="text-[10px] text-slate-400 hidden sm:inline">Click any stock to open instant order modal</span>
           </div>
           <button
-            onClick={() => onSelectTab('screener')}
+            onClick={() => onSelectTab?.('screener')}
             className="text-[11px] font-semibold text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer"
           >
             Explore AI Screener <ChevronRight className="h-3 w-3" />
@@ -633,7 +657,7 @@ export const PaperTradingView: React.FC<PaperTradingViewProps> = ({
                           <button
                             onClick={() => {
                               onSelectStock(pos.symbol);
-                              onSelectTab('terminal');
+                              onSelectTab?.('terminal');
                             }}
                             className="font-bold text-white hover:text-emerald-400 transition-colors text-left flex items-center gap-1.5"
                           >

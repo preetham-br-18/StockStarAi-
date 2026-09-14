@@ -19,7 +19,7 @@ interface MarketsViewProps {
   status: MarketStatus | null;
   allQuotes: StockQuote[];
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const MarketsView: React.FC<MarketsViewProps> = ({
@@ -240,7 +240,7 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
                 key={stock.symbol}
                 onClick={() => {
                   onSelectStock(stock.symbol);
-                  onSelectTab('terminal');
+                  onSelectTab?.('terminal');
                 }}
                 className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer transition-colors"
               >
@@ -271,7 +271,7 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
                 key={stock.symbol}
                 onClick={() => {
                   onSelectStock(stock.symbol);
-                  onSelectTab('terminal');
+                  onSelectTab?.('terminal');
                 }}
                 className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer transition-colors"
               >
@@ -302,7 +302,7 @@ export const MarketsView: React.FC<MarketsViewProps> = ({
                 key={stock.symbol}
                 onClick={() => {
                   onSelectStock(stock.symbol);
-                  onSelectTab('terminal');
+                  onSelectTab?.('terminal');
                 }}
                 className="flex items-center justify-between p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer transition-colors"
               >

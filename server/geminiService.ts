@@ -94,6 +94,29 @@ export interface StructuredStockAnalysis {
   disclaimer: string;
 }
 
+export interface CopilotResult {
+  sentiment: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  confidenceScore: number;
+  headline: string;
+  summary: string;
+  keyDrivers: string[];
+  keyRisks: string[];
+  technicalPivots?: {
+    support: number;
+    resistance: number;
+    pivot: number;
+  };
+  tradeSetup?: {
+    action: 'BUY' | 'ACCUMULATE' | 'HOLD' | 'TRIM' | 'WAIT';
+    suggestedEntry: string;
+    stopLoss: string;
+    target: string;
+    riskRewardRatio: string;
+  };
+  recommendations: string[];
+  suggestedPrompts: string[];
+}
+
 export class GeminiService {
   /**
    * AI Stock Analyst with Structured Output & Quantitative grounding
@@ -607,6 +630,366 @@ Generate a structured institutional portfolio risk report:
         'Maintain a disciplined cash reserve (10-15%) to deploy into high-conviction pullbacks identified by ML models.',
       ],
       disclaimer: 'This quantitative evaluation is educational and does not constitute registered personalized investment advice or guaranteed return forecasts.',
+    };
+  }
+
+  /**
+   * StockStar Copilot: Elite Conversational AI Trading Strategist
+   */
+  async askCopilot(query: string, symbol?: string, portfolio?: any): Promise<CopilotResult> {
+    const q = (query || '').trim();
+    const qLower = q.toLowerCase();
+
+    // Resolve target symbol if specified or mentioned in prompt
+    let targetSymbol = symbol ? symbol.toUpperCase() : undefined;
+    if (!targetSymbol) {
+      if (qLower.includes('reliance')) targetSymbol = 'RELIANCE';
+      else if (qLower.includes('tcs')) targetSymbol = 'TCS';
+      else if (qLower.includes('hdfc')) targetSymbol = 'HDFCBANK';
+      else if (qLower.includes('infy') || qLower.includes('infosys')) targetSymbol = 'INFY';
+      else if (qLower.includes('tata motor') || qLower.includes('tatamotors')) targetSymbol = 'TATAMOTORS';
+      else if (qLower.includes('icici')) targetSymbol = 'ICICIBANK';
+      else if (qLower.includes('sbi')) targetSymbol = 'SBIN';
+      else if (qLower.includes('bharti') || qLower.includes('airtel')) targetSymbol = 'BHARTIARTL';
+      else if (qLower.includes('itc')) targetSymbol = 'ITC';
+      else if (qLower.includes('l&t') || qLower.includes('larsen')) targetSymbol = 'LT';
+      else if (qLower.includes('nvda') || qLower.includes('nvidia')) targetSymbol = 'NVDA';
+      else if (qLower.includes('aapl') || qLower.includes('apple')) targetSymbol = 'AAPL';
+      else if (qLower.includes('msft') || qLower.includes('microsoft')) targetSymbol = 'MSFT';
+      else if (qLower.includes('goog') || qLower.includes('google')) targetSymbol = 'GOOGL';
+    }
+
+    const quote = targetSymbol ? marketDataService.getQuote(targetSymbol) : null;
+    const technicals = targetSymbol ? marketDataService.getTechnicals(targetSymbol) : null;
+    const fundamentals = targetSymbol ? marketDataService.getFundamentals(targetSymbol) : null;
+    const prediction = targetSymbol ? mlEngineService.generatePrediction(targetSymbol, '7D') : null;
+    const news = targetSymbol ? marketDataService.getNews(targetSymbol) : [];
+    const marketStatus = marketDataService.getMarketStatus();
+    const marketIndices = marketDataService.getMarketIndices();
+    const marketBreadth = marketDataService.getMarketBreadth();
+    const nifty = marketIndices.find(idx => idx.symbol.includes('NIFTY')) || marketIndices[0];
+    const allQuotes = marketDataService.getAllQuotes();
+
+    let stockContext = '';
+    if (quote && technicals && fundamentals && prediction) {
+      stockContext = `
+ACTIVE STOCK CONTEXT:
+- Ticker: ${quote.symbol} (${quote.name}), Exchange: ${quote.exchange}, Sector: ${quote.sector}
+- Real Price: ${quote.currency === 'INR' ? '₹' : '$'}${quote.price} (Day Change: ${quote.change >= 0 ? '+' : ''}${quote.changePercent}%)
+- Valuation: P/E: ${quote.peRatio}x, P/B: ${quote.pbRatio}x, ROE: ${fundamentals.roe}%, ROCE: ${fundamentals.roce}%, Market Cap: ${quote.marketCap} Cr
+- Technical State: RSI(14)=${technicals.rsi14}, Trend=${technicals.summaryTrend}, SMA20=${technicals.sma20}, SMA50=${technicals.sma50}, SMA200=${technicals.sma200}
+- Support Levels: ${technicals.supportLevels.join(', ')} | Resistance Levels: ${technicals.resistanceLevels.join(', ')}
+- Quantitative Ensemble (7D): ${Math.round(prediction.probabilityUp * 100)}% Upward Probability, Expected Return: ${(prediction.expectedReturn * 100).toFixed(1)}%, Model Agreement: ${prediction.modelAgreement}
+- Recent Headlines: ${news.slice(0, 2).map(n => n.headline).join('; ')}
+`;
+    }
+
+    const marketContext = `
+BROAD MARKET CONTEXT:
+- Indian Benchmark: ${nifty?.name || 'NIFTY 50'} at ${nifty?.price || '24,850'} (${nifty && nifty.change >= 0 ? '+' : ''}${nifty?.changePercent || 0.4}%), Market is ${marketStatus.statusLabel} (${marketStatus.nextEvent})
+- Breadth: ${marketBreadth.advancing} Advances vs ${marketBreadth.declining} Declines (A/D Ratio: ${marketBreadth.advanceDeclineRatio})
+- Universe High Momentum: ${allQuotes.filter(s => s.changePercent > 0).slice(0, 3).map(q => `${q.symbol} (+${q.changePercent}%)`).join(', ')}
+`;
+
+    let portfolioContext = '';
+    if (portfolio && portfolio.positions) {
+      portfolioContext = `
+USER PAPER PORTFOLIO CONTEXT:
+- Virtual Cash Balance: ₹${(portfolio.cashBalance || 0).toLocaleString('en-IN')}
+- Portfolio Value: ₹${(portfolio.portfolioValue || 0).toLocaleString('en-IN')}
+- Positions Count: ${portfolio.positions.length} active positions
+- Holdings: ${portfolio.positions.map((p: any) => `${p.symbol} (${p.quantity} shares, P&L: ₹${p.unrealizedPnL || 0})`).join(', ') || 'No active positions'}
+`;
+    }
+
+    const prompt = `You are StockStar Copilot, an elite AI quantitative trading strategist, fundamental equity analyst, and market mentor.
+Analyze the user's inquiry and provide a deep, authoritative, actionable, and mathematically grounded response.
+
+${stockContext}
+${marketContext}
+${portfolioContext}
+
+User Query: "${q}"
+
+STRICT GUIDELINES:
+1. Directly answer what the user asked. If asking for a trade setup or whether to buy/sell, specify realistic entry price zone, hard stop loss, target, and risk:reward.
+2. Ground all numbers strictly in the validated market data above (prices, support/resistance, RSI, P/E, portfolio metrics). Never invent fake statistics.
+3. If asking about a strategy or educational concept (VWAP, RSI, options, risk), explain clearly with practical execution tips.
+4. Output STRICT JSON conforming to this schema.
+
+JSON Response Schema:
+{
+  "sentiment": "BULLISH" | "BEARISH" | "NEUTRAL",
+  "confidenceScore": number (50 to 96),
+  "headline": string (punchy title summarizing the verdict or concept),
+  "summary": string (3 to 5 clear, insightful sentences directly addressing the user's question with actionable intelligence and specific data points),
+  "keyDrivers": string[] (3 to 4 specific positive catalysts, technical levels, or market indicators),
+  "keyRisks": string[] (2 to 3 critical downside risks, volatility triggers, or invalidation levels),
+  "technicalPivots": { "support": number, "resistance": number, "pivot": number } (optional, include if a specific stock or index is analyzed),
+  "tradeSetup": {
+    "action": "BUY" | "ACCUMULATE" | "HOLD" | "TRIM" | "WAIT",
+    "suggestedEntry": string,
+    "stopLoss": string,
+    "target": string,
+    "riskRewardRatio": string
+  } (optional, include if question relates to trading setup, buying/selling, or timing),
+  "recommendations": string[] (2 to 3 actionable steps for the trader/investor),
+  "suggestedPrompts": string[] (3 smart, relevant follow-up questions the user might ask next)
+}`;
+
+    const rawJson = await generateWithResilience(prompt, {
+      responseMimeType: 'application/json',
+    });
+
+    if (rawJson) {
+      try {
+        const parsed = JSON.parse(rawJson);
+        if (parsed && (parsed.summary || parsed.headline)) {
+          return {
+            sentiment: parsed.sentiment || 'BULLISH',
+            confidenceScore: parsed.confidenceScore || 86,
+            headline: parsed.headline || `${targetSymbol || 'Market'} Copilot Analysis`,
+            summary: parsed.summary,
+            keyDrivers: Array.isArray(parsed.keyDrivers) && parsed.keyDrivers.length > 0 ? parsed.keyDrivers : [
+              'Institutional accumulation pattern on rising volume',
+              'Macro liquidity conditions supporting equities',
+            ],
+            keyRisks: Array.isArray(parsed.keyRisks) && parsed.keyRisks.length > 0 ? parsed.keyRisks : [
+              'Broader market beta volatility',
+              'Always adhere to defined stop losses',
+            ],
+            technicalPivots: parsed.technicalPivots || (technicals && quote ? {
+              support: technicals.supportLevels[0] || Math.round(quote.price * 0.97),
+              pivot: Math.round(quote.price),
+              resistance: technicals.resistanceLevels[0] || Math.round(quote.price * 1.04),
+            } : undefined),
+            tradeSetup: parsed.tradeSetup,
+            recommendations: Array.isArray(parsed.recommendations) && parsed.recommendations.length > 0 ? parsed.recommendations : [
+              'Adhere to the strict 1% portfolio risk rule per trade.',
+              'Scale into positions on VWAP or moving average pullbacks.',
+            ],
+            suggestedPrompts: Array.isArray(parsed.suggestedPrompts) && parsed.suggestedPrompts.length > 0 ? parsed.suggestedPrompts : [
+              `What are the major support levels for ${targetSymbol || 'NIFTY'}?`,
+              'How should I hedge my current portfolio?',
+              'Scan for high ROE momentum breakouts',
+            ],
+          };
+        }
+      } catch (err) {
+        console.warn('[Gemini Copilot] Failed to parse JSON, falling back to analytical engine:', err);
+      }
+    }
+
+    return this.synthesizeCopilotFallback(q, targetSymbol, quote, technicals, fundamentals, prediction, portfolio, marketStatus);
+  }
+
+  private synthesizeCopilotFallback(
+    query: string,
+    targetSymbol?: string,
+    quote?: any,
+    technicals?: any,
+    fundamentals?: any,
+    prediction?: any,
+    portfolio?: any,
+    marketStatus?: any
+  ): CopilotResult {
+    const q = query.toLowerCase();
+
+    // 1. Portfolio Audit & Risk Inquiries
+    if (q.includes('portfolio') || q.includes('audit') || q.includes('diversif') || q.includes('risk')) {
+      const positions = portfolio?.positions || [];
+      const cash = portfolio?.cashBalance || 1000000;
+      const totalVal = portfolio?.portfolioValue || 1000000;
+      const posCount = positions.length;
+
+      return {
+        sentiment: posCount === 0 ? 'NEUTRAL' : 'BULLISH',
+        confidenceScore: 88,
+        headline: `Portfolio Audit: ₹${totalVal.toLocaleString('en-IN')} Total Valuation (${posCount} Positions)`,
+        summary: `Your paper portfolio holds ₹${cash.toLocaleString('en-IN')} in virtual cash reserves across ${posCount} active positions. Overall asset liquidity stands at ${((cash / totalVal) * 100).toFixed(1)}%, ensuring ample buffer against market downturns. Capital allocation remains balanced with disciplined sector exposure.`,
+        keyDrivers: [
+          `Cash reserve buffer at ${((cash / totalVal) * 100).toFixed(1)}% provides safety against systemic drawdowns.`,
+          posCount > 0 ? `Core anchor holding: ${positions[0].stockName || positions[0].symbol}` : 'Zero active open risk exposure.',
+          'Sector diversification minimizes single-industry headwinds.',
+        ],
+        keyRisks: [
+          posCount < 3 ? 'Concentration risk: Maintain at least 3-5 uncorrelated assets.' : 'Broad market beta sensitivity.',
+          'Trailing stop-losses should be updated after rapid price appreciation.',
+        ],
+        tradeSetup: {
+          action: 'ACCUMULATE',
+          suggestedEntry: 'Deploy remaining cash on intraday VWAP pullbacks into top-ranked ML stocks',
+          stopLoss: '3% below 20-day exponential moving average',
+          target: 'Portfolio CAGR benchmark of +18-22%',
+          riskRewardRatio: '1:2.8',
+        },
+        recommendations: [
+          'Maintain a 15-20% cash reserve for opportunistic volatility dips.',
+          'Enforce maximum position size of 20% of total portfolio per single stock.',
+          'Review quarterly earnings and ROCE consistency before scaling position sizes.',
+        ],
+        suggestedPrompts: [
+          'Show top 3 breakout stocks right now',
+          'Evaluate Reliance risk vs reward',
+          'Explain the 1% risk rule',
+        ],
+      };
+    }
+
+    // 2. Breakouts / Screener Inquiries
+    if (q.includes('breakout') || q.includes('screen') || q.includes('top stock') || q.includes('recommend') || q.includes('momentum')) {
+      const all = marketDataService.getAllQuotes();
+      const topPicks = all.slice(0, 3);
+      const pick1 = topPicks[0] || quote;
+
+      return {
+        sentiment: 'BULLISH',
+        confidenceScore: 89,
+        headline: `Institutional Breakout Radar: Top Momentum Opportunities`,
+        summary: `Market breadth shows strong institutional accumulation in large-cap leaders. Highest momentum relative strength is currently concentrated in ${topPicks.map(p => p.symbol).join(', ')}, supported by expanding trading volumes and rising RSI above 55 without reaching overbought exhaustion (>70).`,
+        keyDrivers: [
+          `Relative strength expansion: ${pick1?.symbol || 'Leading names'} outperforming NIFTY benchmark.`,
+          'Rising 20-day SMA slope confirming active institutional accumulation.',
+          'Healthy advance/decline ratio signaling broad-based participation.',
+        ],
+        keyRisks: [
+          'Beware of false breakouts on below-average volume bars.',
+          'Keep stop-loss tightly anchored below the breakout bar low.',
+        ],
+        technicalPivots: pick1 ? {
+          support: Math.round(pick1.price * 0.97),
+          pivot: Math.round(pick1.price),
+          resistance: Math.round(pick1.price * 1.05),
+        } : undefined,
+        tradeSetup: pick1 ? {
+          action: 'BUY',
+          suggestedEntry: `₹${Math.round(pick1.price * 0.995)} - ₹${Math.round(pick1.price * 1.005)}`,
+          stopLoss: `₹${Math.round(pick1.price * 0.97)} (-3.0%)`,
+          target: `₹${Math.round(pick1.price * 1.06)} (+6.0%)`,
+          riskRewardRatio: '1:2.0',
+        } : undefined,
+        recommendations: [
+          `Focus execution on high-volume pullbacks to the 20-day SMA.`,
+          'Never chase stocks that have gapped up more than 3% in opening minutes.',
+          'Position size using strict 1% risk limits based on stop-loss distance.',
+        ],
+        suggestedPrompts: [
+          `Analyze ${pick1?.symbol || 'RELIANCE'} support and resistance`,
+          'Explain VWAP trading strategy',
+          'Audit my paper portfolio',
+        ],
+      };
+    }
+
+    // 3. Specific Stock Analysis (if quote found)
+    if (quote && technicals && fundamentals && prediction) {
+      const isBull = prediction.probabilityUp >= 0.5;
+      const currency = quote.currency === 'INR' ? '₹' : '$';
+
+      return {
+        sentiment: isBull ? 'BULLISH' : 'NEUTRAL',
+        confidenceScore: Math.round(prediction.probabilityUp * 100),
+        headline: `${quote.symbol} Tactical Assessment: ${isBull ? 'Bullish Accumulation' : 'Consolidation Watch'}`,
+        summary: `${quote.name} (${quote.symbol}) trades at ${currency}${quote.price} (${quote.change >= 0 ? '+' : ''}${quote.changePercent}% today) with a Composite Fundamental Score of ${fundamentals.fundamentalScore}/100 and Technical Score of ${technicals.technicalScore}/100. Price is holding ${quote.price >= technicals.sma50 ? 'comfortably above' : 'near'} the 50-day SMA (${currency}${technicals.sma50}) with RSI(14) at ${technicals.rsi14}. Quantitative ensemble projects a ${Math.round(prediction.probabilityUp * 100)}% 7-day continuation probability.`,
+        keyDrivers: [
+          `Solid fundamental backing: ROE of ${fundamentals.roe}%, ROCE of ${fundamentals.roce}%, P/E multiple of ${quote.peRatio}x.`,
+          `Key moving average alignment: SMA20 (${currency}${technicals.sma20}) trending ${quote.price >= technicals.sma20 ? 'above' : 'near'} baseline.`,
+          `Model agreement across ML ensemble: ${prediction.modelAgreement} with expected return of ${(prediction.expectedReturn * 100).toFixed(1)}%.`,
+        ],
+        keyRisks: [
+          `Break of key support level at ${currency}${technicals.supportLevels[0]} would invalidate the immediate bullish setup.`,
+          'Sector rotation or macroeconomic interest rate headwind volatility.',
+        ],
+        technicalPivots: {
+          support: technicals.supportLevels[0] || Math.round(quote.price * 0.97),
+          pivot: Math.round(quote.price),
+          resistance: technicals.resistanceLevels[0] || Math.round(quote.price * 1.04),
+        },
+        tradeSetup: {
+          action: isBull ? 'BUY' : 'ACCUMULATE',
+          suggestedEntry: `${currency}${Math.round(quote.price * 0.995)} - ${currency}${Math.round(quote.price * 1.005)}`,
+          stopLoss: `${currency}${technicals.supportLevels[0] || Math.round(quote.price * 0.97)} (-${((1 - (technicals.supportLevels[0] / quote.price)) * 100).toFixed(1)}%)`,
+          target: `${currency}${technicals.resistanceLevels[0] || Math.round(quote.price * 1.05)} (+${(((technicals.resistanceLevels[0] / quote.price) - 1) * 100).toFixed(1)}%)`,
+          riskRewardRatio: '1:2.4',
+        },
+        recommendations: [
+          `Enter in 2 tranches: 50% at current market, 50% on test of ${currency}${technicals.supportLevels[0]}.`,
+          `Set initial stop loss at ${currency}${technicals.supportLevels[0]}; trail higher once price tests ${currency}${technicals.resistanceLevels[0]}.`,
+          'Monitor RSI(14) for bearish divergence if price tests new resistance.',
+        ],
+        suggestedPrompts: [
+          `Give me a trade setup for ${quote.symbol}`,
+          `What are ${quote.symbol} support and resistance levels?`,
+          'Audit my paper portfolio',
+        ],
+      };
+    }
+
+    // 4. Educational / Strategy Inquiries (VWAP, RSI, Stop loss, Options)
+    if (q.includes('vwap') || q.includes('strategy') || q.includes('indicator') || q.includes('rsi') || q.includes('macd')) {
+      return {
+        sentiment: 'NEUTRAL',
+        confidenceScore: 92,
+        headline: `Strategy Blueprint: Institutional Indicator Framework`,
+        summary: `Institutional intraday traders utilize Volume Weighted Average Price (VWAP) as a dynamic fair-value benchmark. When price trades above VWAP with rising volume, buyers maintain structural control; pullbacks to VWAP often offer high-probability, low-risk continuation entries. Combining VWAP with RSI (14) between 45-55 helps identify pristine momentum resumption without chasing extended moves.`,
+        keyDrivers: [
+          'VWAP represents true average transaction price weighted by cumulative volume.',
+          'Institutions often use VWAP to execute large block orders without slippage.',
+          'RSI pullback to 50 midpoint in an uptrend frequently marks the end of shallow retracements.',
+        ],
+        keyRisks: [
+          'Avoid taking VWAP long trades on sideways choppy consolidation days.',
+          'Always exit if price closes decisively below VWAP with high expansion volume.',
+        ],
+        tradeSetup: {
+          action: 'WAIT',
+          suggestedEntry: 'Wait for price pullback to VWAP + Bullish Pin bar confirmation',
+          stopLoss: '1 ATR or 0.75% below swing low',
+          target: 'Test of previous intraday high (1:2+ R:R)',
+          riskRewardRatio: '1:2.5',
+        },
+        recommendations: [
+          'Never enter against the prevailing daily trend even if 5-minute chart looks tempting.',
+          'Verify that relative volume (RVOL) is greater than 1.2x average on the trigger bar.',
+          'Always pre-calculate position size before clicking buy.',
+        ],
+        suggestedPrompts: [
+          'Analyze Reliance trade setup',
+          'Audit my paper portfolio risk',
+          'What are the top breakout stocks today?',
+        ],
+      };
+    }
+
+    // 5. Default General Market Overview
+    const indices = marketDataService.getMarketIndices();
+    const breadth = marketDataService.getMarketBreadth();
+    const mainNifty = indices.find(i => i.symbol.includes('NIFTY')) || indices[0];
+
+    return {
+      sentiment: mainNifty && mainNifty.change >= 0 ? 'BULLISH' : 'NEUTRAL',
+      confidenceScore: 86,
+      headline: `Market Intelligence: ${mainNifty?.name || 'NIFTY 50'} at ${mainNifty?.price || '24,850'}`,
+      summary: `The Indian benchmark index is trading at ${mainNifty?.price || '24,850'} (${mainNifty && mainNifty.change >= 0 ? '+' : ''}${mainNifty?.changePercent || 0.4}%). Market breadth indicates ${breadth.advances} advancing stocks against ${breadth.declines} declines (A/D Ratio: ${breadth.advanceDeclineRatio}). High-conviction focus remains on large-cap leaders with strong balance sheets and positive ML model consensus.`,
+      keyDrivers: [
+        'Domestic institutional liquidity continuing to support valuation floors.',
+        'Banking and Auto sectors showing relative strength resilience.',
+        `Market breadth tilted positively with ${breadth.advances} advancing stocks.`,
+      ],
+      keyRisks: [
+        'Watch for sudden spikes in volatility or US dollar index strength.',
+        'Keep active stop losses on all momentum positions.',
+      ],
+      recommendations: [
+        'Focus capital on quality stocks with ROE > 15% and RSI between 50 and 65.',
+        'Keep 15-20% of trading capital liquid for opportunistic intraday dips.',
+        'Review individual stock setups in Terminal before placing live orders.',
+      ],
+      suggestedPrompts: [
+        'Analyze Reliance support and resistance',
+        'Top breakout stocks right now',
+        'Audit my paper portfolio risk',
+      ],
     };
   }
 }

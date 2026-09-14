@@ -26,7 +26,7 @@ interface HomeViewProps {
   news: MarketNews[];
   marketStatus: MarketStatus | null;
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
   onAnalyzeNews?: (news: MarketNews) => void;
 }
 
@@ -70,7 +70,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
               id="hero-explore-terminal-btn"
               onClick={() => {
                 onSelectStock('RELIANCE');
-                onSelectTab('terminal');
+                onSelectTab?.('terminal');
               }}
               className="inline-flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-xs sm:text-sm font-semibold text-slate-950 shadow-lg shadow-emerald-500/25 hover:bg-emerald-400 transition-all cursor-pointer"
             >
@@ -79,7 +79,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </button>
             <button
               id="hero-start-paper-trading-btn"
-              onClick={() => onSelectTab('paper')}
+              onClick={() => onSelectTab?.('paper')}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-800/80 px-5 py-2.5 text-xs sm:text-sm font-medium text-slate-200 hover:bg-slate-800 hover:text-white transition-all cursor-pointer"
             >
               <Zap className="h-4 w-4 text-emerald-400" />
@@ -87,7 +87,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
             </button>
             <button
               id="hero-start-screener-btn"
-              onClick={() => onSelectTab('screener')}
+              onClick={() => onSelectTab?.('screener')}
               className="inline-flex items-center gap-2 rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-2.5 text-xs sm:text-sm font-medium text-slate-300 hover:bg-slate-800 transition-all cursor-pointer"
             >
               AI Stock Screener
@@ -141,7 +141,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-slate-400">Key Market Indices</h2>
           <button
-            onClick={() => onSelectTab('markets')}
+            onClick={() => onSelectTab?.('markets')}
             className="text-xs text-emerald-400 hover:text-emerald-300 font-medium inline-flex items-center gap-1"
           >
             Full Market Overview <ArrowRight className="h-3 w-3" />
@@ -343,7 +343,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       <button
                         onClick={() => {
                           onSelectStock(stock.symbol);
-                          onSelectTab('terminal');
+                          onSelectTab?.('terminal');
                         }}
                         className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 font-medium text-slate-200 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
                       >
@@ -395,7 +395,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       <button
                         onClick={() => {
                           onSelectStock(stock.symbol);
-                          onSelectTab('terminal');
+                          onSelectTab?.('terminal');
                         }}
                         className="rounded-lg border border-slate-700 bg-slate-800 px-3 py-1 font-medium text-slate-200 hover:border-emerald-500 hover:text-emerald-400 transition-colors"
                       >
@@ -452,7 +452,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                 <button
                   onClick={() => {
                     onSelectStock(item.symbol);
-                    onSelectTab('terminal');
+                    onSelectTab?.('terminal');
                   }}
                   className="text-emerald-400 hover:text-emerald-300 font-medium inline-flex items-center gap-1"
                 >

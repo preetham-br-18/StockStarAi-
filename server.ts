@@ -350,13 +350,48 @@ async function startServer() {
     }
   });
 
-  // AI Stock Analyst: Structured research response
+  // StockStar Copilot: Full institutional AI assistant
+  app.post('/api/ai/copilot', async (req, res) => {
+    try {
+      const { query, question, symbol, currentSymbol } = req.body;
+      const effectiveQuery = query || question || 'Provide comprehensive market intelligence and trade setups';
+      const effectiveSymbol = symbol || currentSymbol || undefined;
+
+      const portfolioSnapshot = {
+        positions: paperPortfolio.positions,
+        cashBalance: paperPortfolio.cashBalance,
+        portfolioValue: paperPortfolio.portfolioValue,
+        totalPnL: paperPortfolio.totalPnL,
+        totalPnLPercent: paperPortfolio.totalPnLPercent,
+      };
+
+      const result = await geminiService.askCopilot(effectiveQuery, effectiveSymbol, portfolioSnapshot);
+      res.json(result);
+    } catch (err: any) {
+      console.warn('[API /api/ai/copilot] Handled error:', err?.message || err);
+      res.status(500).json({ error: 'Failed to generate copilot intelligence' });
+    }
+  });
+
+  // AI Stock Analyst: Structured research response & legacy ask endpoint
   app.post('/api/ai/ask', async (req, res) => {
     try {
-      const { symbol, query } = req.body;
-      if (!symbol) return res.status(400).json({ error: 'Symbol is required' });
-      const analysis = await geminiService.analyzeStock(symbol, query);
-      res.json(analysis);
+      const { symbol, query, question, currentSymbol } = req.body;
+      const effectiveQuery = query || question || '';
+      const effectiveSymbol = symbol || currentSymbol;
+
+      if (effectiveSymbol && marketDataService.getQuote(effectiveSymbol)) {
+        const analysis = await geminiService.analyzeStock(effectiveSymbol, effectiveQuery);
+        res.json(analysis);
+      } else {
+        const portfolioSnapshot = {
+          positions: paperPortfolio.positions,
+          cashBalance: paperPortfolio.cashBalance,
+          portfolioValue: paperPortfolio.portfolioValue,
+        };
+        const result = await geminiService.askCopilot(effectiveQuery || 'Macro market overview', effectiveSymbol, portfolioSnapshot);
+        res.json(result);
+      }
     } catch (err: any) {
       console.warn('[API /api/ai/ask] Handled error:', err?.message || err);
       res.status(500).json({ error: 'Failed to process AI equity analysis' });

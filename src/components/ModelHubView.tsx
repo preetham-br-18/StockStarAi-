@@ -16,7 +16,7 @@ import { ModelPerformanceMetric } from '../types';
 
 interface ModelHubViewProps {
   onSelectStock: (symbol: string) => void;
-  onSelectTab: (tab: string) => void;
+  onSelectTab?: (tab: string) => void;
 }
 
 export const ModelHubView: React.FC<ModelHubViewProps> = ({
