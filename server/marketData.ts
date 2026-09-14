@@ -1005,26 +1005,37 @@ export class MarketDataProvider implements IMarketDataProvider {
     // Determine count and time delta based on timeframe
     let points = 120;
     let daysBack = 180;
+    const isIntraday = timeframe === '1D' || timeframe === '1W';
+
     if (timeframe === '1D') { points = 75; daysBack = 1; }
-    else if (timeframe === '1W') { points = 80; daysBack = 7; }
+    else if (timeframe === '1W') { points = 70; daysBack = 7; }
     else if (timeframe === '1M') { points = 30; daysBack = 30; }
     else if (timeframe === '3M') { points = 65; daysBack = 90; }
-    else if (timeframe === '6M') { points = 130; daysBack = 180; }
+    else if (timeframe === '6M') { points = 125; daysBack = 180; }
     else if (timeframe === '1Y') { points = 250; daysBack = 365; }
     else if (timeframe === '3Y') { points = 350; daysBack = 1095; }
     else if (timeframe === '5Y' || timeframe === 'MAX') { points = 450; daysBack = 1825; }
 
     const now = Date.now();
-    const msPerPoint = (daysBack * 86400 * 1000) / points;
     let currPrice = basePrice * 0.82; // Start with historical upward climb
     const seed = symbol.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    const seenTimes = new Set<string | number>();
 
     for (let i = 0; i < points; i++) {
-      const timestamp = new Date(now - (points - i) * msPerPoint);
-      const isDateStr = timeframe !== '1D';
-      const timeVal = isDateStr
-        ? timestamp.toISOString().split('T')[0]
-        : Math.floor(timestamp.getTime() / 1000);
+      let timeVal: string | number;
+      if (isIntraday) {
+        // Intraday timestamps use seconds since epoch to preserve minute/hour increments
+        const msPerPoint = (daysBack * 86400 * 1000) / points;
+        timeVal = Math.floor((now - (points - 1 - i) * msPerPoint) / 1000);
+      } else {
+        // Daily candles: guaranteed 1 per calendar day
+        const d = new Date(now);
+        d.setDate(d.getDate() - (points - 1 - i));
+        timeVal = d.toISOString().split('T')[0];
+      }
+
+      if (seenTimes.has(timeVal)) continue;
+      seenTimes.add(timeVal);
 
       const pseudoRandom = Math.sin(seed + i * 0.35) * 0.015 + (Math.cos(i * 0.12) * 0.008);
       const trend = (basePrice - currPrice) / (points - i + 5) * 0.5;
