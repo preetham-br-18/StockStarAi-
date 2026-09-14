@@ -74,10 +74,13 @@ export const LearnView: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: q }),
       });
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
       const data = await res.json();
       setTutorResponse(data);
     } catch (err) {
-      console.error('Tutor error:', err);
+      console.warn('Tutor fetch notice:', err);
     } finally {
       setTutorLoading(false);
     }
